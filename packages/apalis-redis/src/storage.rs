@@ -928,9 +928,9 @@ where
     }
 
     /// Re-enqueue some jobs that might be abandoned.
-    pub async fn reenqueue_active(&mut self, job_ids: Vec<&TaskId>) -> Result<(), RedisError> {
+    pub async fn reenqueue_active(&mut self, worker_id: &WorkerId, job_ids: Vec<&TaskId>) -> Result<(), RedisError> {
         let reenqueue_active = self.scripts.reenqueue_active.clone();
-        let inflight_set: String =  todo!("get inflight set");//self.config.inflight_jobs_set().to_string();
+        let inflight_set: String =  self.config.inflight_jobs_set(worker_id);
         let active_jobs_list = self.config.active_jobs_list();
         let signal_list = self.config.signal_list();
 
