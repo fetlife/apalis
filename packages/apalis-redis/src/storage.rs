@@ -669,16 +669,17 @@ fn build_error(message: &str) -> RedisError {
 fn deserialize_job(job: &Value) -> Result<&Vec<u8>, RedisError> {
     match job {
         Value::BulkString(bytes) => Ok(bytes),
-        Value::Array(val) | Value::Set(val) => val
-            .first()
-            .and_then(|val| {
-                if let Value::BulkString(bytes) = val {
-                    Some(bytes)
-                } else {
-                    None
-                }
-            })
-            .ok_or(build_error("Value::Bulk: Invalid data returned by storage")),
+        Value::Array(val) | Value::Set(val) => {
+            let value = val
+                .first()
+                .ok_or(build_error("Array or Set is empty"))?;
+            if let Value::BulkString(bytes) = value {
+                Ok(bytes)
+            } else {
+                tracing::error!(?value, "Value::Bulk: Invalid data returned by storage");
+                Err(build_error("Value::Bulk: Invalid data returned by storage"))
+            }
+        }
         _ => Err(build_error("unknown result type for next message")),
     }
 }
