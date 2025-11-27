@@ -318,7 +318,7 @@ impl<S, P> Worker<Ready<S, P>> {
         let heartbeat = poller.heartbeat.boxed();
         let layer = poller.layer;
         let service = ServiceBuilder::new()
-            .layer(TrackerLayer::new(worker.state.clone()))
+            // .layer(TrackerLayer::new(worker.state.clone()))
             .layer(ReadinessLayer::new(worker.state.is_ready.clone()))
             .layer(Data::new(worker.clone()))
             .layer(layer)
@@ -538,7 +538,7 @@ impl Future for Context {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut TaskCtx<'_>) -> Poll<()> {
-        let task_count = self.task_count.load(Ordering::Relaxed);
+        let task_count = self.task_count();
         if self.is_shutting_down() && task_count == 0 {
             Poll::Ready(())
         } else {
