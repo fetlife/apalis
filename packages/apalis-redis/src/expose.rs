@@ -9,14 +9,16 @@ use apalis_core::request::Request;
 use apalis_core::request::State;
 use apalis_core::worker::Worker;
 use apalis_core::worker::WorkerId;
+use redis::aio::ConnectionLike;
 use redis::{ErrorKind, Value};
 use serde::{de::DeserializeOwned, Serialize};
 
 type RedisCodec = JsonCodec<Vec<u8>>;
 
-impl<T> BackendExpose<T> for RedisStorage<T>
+impl<T, Conn> BackendExpose<T> for RedisStorage<T, Conn>
 where
     T: 'static + Serialize + DeserializeOwned + Send + Unpin + Sync,
+    Conn: ConnectionLike + Clone + Send + Sync + 'static,
 {
     type Request = Request<T, RedisContext>;
     type Error = redis::RedisError;
