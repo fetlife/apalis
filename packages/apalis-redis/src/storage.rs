@@ -17,8 +17,8 @@ use futures::channel::mpsc::{self, SendError, Sender};
 use futures::{select, FutureExt, SinkExt, StreamExt, TryFutureExt};
 use log::*;
 use redis::aio::ConnectionLike;
-use redis::ErrorKind;
 use redis::{aio::ConnectionManager, Client, IntoConnectionInfo, RedisError, Script, Value};
+use redis::{ErrorKind, ServerErrorKind};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::any::type_name;
 use std::fmt::{self, Debug};
@@ -654,7 +654,7 @@ where
             }
             Err(e) => {
                 warn!("An error occurred during streaming jobs: {e}");
-                if matches!(e.kind(), ErrorKind::ResponseError)
+                if matches!(e.kind(), ErrorKind::Server(ServerErrorKind::ResponseError))
                     && e.to_string().contains("consumer not registered script")
                 {
                     self.keep_alive(worker_id).await?;
@@ -673,9 +673,7 @@ fn deserialize_job(job: &Value) -> Result<&Vec<u8>, RedisError> {
     match job {
         Value::BulkString(bytes) => Ok(bytes),
         Value::Array(val) | Value::Set(val) => {
-            let value = val
-                .first()
-                .ok_or(build_error("Array or Set is empty"))?;
+            let value = val.first().ok_or(build_error("Array or Set is empty"))?;
             if let Value::BulkString(bytes) = value {
                 Ok(bytes)
             } else {
@@ -726,9 +724,9 @@ where
         let active_jobs_list = self.config.active_jobs_list();
         let signal_list = self.config.signal_list();
 
-        let job = C::encode(&req)
-            .map_err(|e| (ErrorKind::IoError, "Encode error", e.into().to_string()))?;
-        push_job
+        let job =
+            C::encode(&req).map_err(|e| (ErrorKind::Io, "Encode error", e.into().to_string()))?;
+        let _: () = push_job
             .key(job_data_hash)
             .key(active_jobs_list)
             .key(signal_list)
@@ -749,9 +747,9 @@ where
         let active_jobs_list = self.config.active_jobs_list();
         let signal_list = self.config.signal_list();
 
-        let job = C::encode(&req)
-            .map_err(|e| (ErrorKind::IoError, "Encode error", e.into().to_string()))?;
-        push_job
+        let job =
+            C::encode(&req).map_err(|e| (ErrorKind::Io, "Encode error", e.into().to_string()))?;
+        let _: () = push_job
             .key(job_data_hash)
             .key(active_jobs_list)
             .key(signal_list)
@@ -770,9 +768,9 @@ where
         let schedule_job = self.scripts.schedule_job.clone();
         let job_data_hash = self.config.job_data_hash();
         let scheduled_jobs_set = self.config.scheduled_jobs_set();
-        let job = C::encode(&req)
-            .map_err(|e| (ErrorKind::IoError, "Encode error", e.into().to_string()))?;
-        schedule_job
+        let job =
+            C::encode(&req).map_err(|e| (ErrorKind::Io, "Encode error", e.into().to_string()))?;
+        let _: () = schedule_job
             .key(job_data_hash)
             .key(scheduled_jobs_set)
             .arg(req.parts.task_id.to_string())
@@ -804,13 +802,13 @@ where
         let bytes = deserialize_job(&data)?;
 
         let inner: Request<T, RedisContext> = C::decode(bytes.to_vec())
-            .map_err(|e| (ErrorKind::IoError, "Decode error", e.into().to_string()))?;
+            .map_err(|e| (ErrorKind::Io, "Decode error", e.into().to_string()))?;
         Ok(Some(inner))
     }
     async fn update(&mut self, job: Request<T, RedisContext>) -> Result<(), RedisError> {
         let task_id = job.parts.task_id.to_string();
-        let bytes = C::encode(&job)
-            .map_err(|e| (ErrorKind::IoError, "Encode error", e.into().to_string()))?;
+        let bytes =
+            C::encode(&job).map_err(|e| (ErrorKind::Io, "Encode error", e.into().to_string()))?;
         let _: i64 = redis::cmd("HSET")
             .arg(self.config.job_data_hash())
             .arg(task_id)
@@ -828,23 +826,23 @@ where
         let schedule_job = self.scripts.schedule_job.clone();
         let job_id = &job.parts.task_id;
         let worker_id = &job.parts.context.lock_by.clone().unwrap();
-        let job = C::encode(&job)
-            .map_err(|e| (ErrorKind::IoError, "Encode error", e.into().to_string()))?;
+        let job =
+            C::encode(&job).map_err(|e| (ErrorKind::Io, "Encode error", e.into().to_string()))?;
         let job_data_hash = self.config.job_data_hash();
         let scheduled_jobs_set = self.config.scheduled_jobs_set();
         let on: i64 = Utc::now().timestamp();
         let wait: i64 = wait
             .as_secs()
             .try_into()
-            .map_err(|e: TryFromIntError| (ErrorKind::IoError, "Duration error", e.to_string()))?;
+            .map_err(|e: TryFromIntError| (ErrorKind::Io, "Duration error", e.to_string()))?;
         let inflight_set = format!("{}:{}", self.config.inflight_jobs_set(), worker_id);
         let failed_jobs_set = self.config.failed_jobs_set();
-        redis::cmd("SREM")
+        let _: () = redis::cmd("SREM")
             .arg(inflight_set)
             .arg(job_id.to_string())
             .query_async(&mut self.conn)
             .await?;
-        redis::cmd("ZADD")
+        let _: () = redis::cmd("ZADD")
             .arg(failed_jobs_set)
             .arg(on)
             .arg(job_id.to_string())
@@ -908,7 +906,7 @@ where
                     return Ok(1);
                 }
                 let job = C::encode(job)
-                    .map_err(|e| (ErrorKind::IoError, "Encode error", e.into().to_string()))?;
+                    .map_err(|e| (ErrorKind::Io, "Encode error", e.into().to_string()))?;
 
                 let res: Result<i32, RedisError> = retry_job
                     .key(inflight_set)
@@ -924,7 +922,10 @@ where
                     Err(e) => Err(e),
                 }
             }
-            None => Err(RedisError::from((ErrorKind::ResponseError, "Id not found"))),
+            None => Err(RedisError::from((
+                ErrorKind::Server(ServerErrorKind::ResponseError),
+                "Id not found",
+            ))),
         }
     }
 

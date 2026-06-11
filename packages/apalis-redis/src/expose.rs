@@ -228,7 +228,7 @@ where
             .filter_map(|v| match v {
                 Value::BulkString(data) => {
                     let inner = C::decode(data.to_vec())
-                        .map_err(|e| (ErrorKind::IoError, "Decode error", e.into().to_string()))
+                        .map_err(|e| (ErrorKind::Io, "Decode error", e.into().to_string()))
                         .unwrap();
                     Some(inner)
                 }
